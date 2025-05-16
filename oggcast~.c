@@ -106,15 +106,14 @@ areas.
 #define SEND_OPT 0
 #endif
 
-
-static char   *oggcast_version = "oggcast~: ogg/vorbis streaming client version 0.2k, written by Olaf Matthes";
-
 static t_class *oggcast_class;
 
 typedef struct _oggcast
 {
     t_object x_obj;
     t_float x_f;
+    t_float x_unused;
+    t_symbol *x_ignore;
     t_clock *x_clock_connect;
     t_clock *x_clock_pages;
     t_outlet *x_connection;    /* outlet for connection state */
@@ -246,7 +245,7 @@ char *oggcast_util_base64_encode(char *data)
 	/* check server for writeability */
 static int oggcast_checkserver(t_int sock)
 {
-    fd_set          fdset;
+//    fd_set          fdset;
     struct timeval  ztout;
 	fd_set writeset;
 	fd_set exceptset;
@@ -447,7 +446,9 @@ static void oggcast_vorbis_deinit(t_oggcast *x)
 	/* encode ogg/vorbis and stream new data */
 static int oggcast_encode(t_oggcast *x, float *buf, int channels, int fifosize, int fd)
 {
-    unsigned short i, ch;
+    x->x_unused = fifosize;
+//    unsigned short i;
+    unsigned short ch;
     int err = 0;
     int n, pages = 0;
 
@@ -500,7 +501,7 @@ static int oggcast_child_connect(char *hostname, char *mountpoint, t_int portno,
         /* variables used for communication with server */
     const char      * buf = 0;
     char            resp[STRBUF_SIZE];
-    unsigned int    len;
+//    unsigned int    len;
     fd_set          fdset;
     struct timeval  tv;
     t_int           sockfd;                         /* our internal handle for the socket */
@@ -599,7 +600,7 @@ static int oggcast_child_connect(char *hostname, char *mountpoint, t_int portno,
 			/* bitrate */
 		buf = "\r\nice-bitrate: ";
 		send(sockfd, buf, strlen(buf), SEND_OPT);
-		if(sprintf(resp, "%d", br_nom) == -1)    /* convert int to a string */
+		if(sprintf(resp, "%ld", br_nom) == -1)    /* convert int to a string */
 		{
 			post("oggcast~: wrong bitrate");
 		}
@@ -667,7 +668,7 @@ static int oggcast_child_connect(char *hostname, char *mountpoint, t_int portno,
 			/* bitrate */
 		buf = "\r\nice-bitrate: ";
 		send(sockfd, buf, strlen(buf), SEND_OPT);
-		if(sprintf(resp, "%d", br_nom) == -1)    /* convert int to a string */
+		if(sprintf(resp, "%ld", br_nom) == -1)    /* convert int to a string */
 		{
 			post("oggcast~: wrong bitrate");
 		}
@@ -765,7 +766,8 @@ static void *oggcast_child_main(void *zz)
 		else if (x->x_requestcode == REQUEST_CONNECT)
 		{
     		char boo[100];
-			int sysrtn, wantbytes;
+            int sysrtn;
+           // int wantbytes;
 			
 	    		/* copy connect stuff out of the data structure so we can
 			relinquish the mutex while we're connecting to server. */
@@ -842,7 +844,7 @@ static void *oggcast_child_main(void *zz)
 				x->x_fifosize = x->x_bufsize - (x->x_bufsize % (x->x_channels * READ));
 					/* arrange for the "request" condition to be signalled x->x_siginterval
 					times per buffer */
-    			sprintf(boo, "fifosize %d\n", x->x_fifosize);
+    			sprintf(boo, "fifosize %ld\n", x->x_fifosize);
     			pute(boo);
 				x->x_sigcountdown = x->x_sigperiod = (x->x_fifosize / (x->x_siginterval * x->x_channels * x->x_vecsize));
 			}
@@ -853,7 +855,7 @@ static void *oggcast_child_main(void *zz)
 
 			while (x->x_requestcode == REQUEST_BUSY)
 			{
-	    		int fifosize = x->x_fifosize, fifotail, channels;
+	    		int fifosize = x->x_fifosize, channels;
 				float *buf = x->x_buf;
     	    	pute("77\n");
 
@@ -888,7 +890,7 @@ static void *oggcast_child_main(void *zz)
 						if (x->x_fifotail >= fifosize)
     	    	    				x->x_fifotail = 0;
     	    		}
-    	    		sprintf(boo, "after: head %d, tail %d, pages %d\n", x->x_fifohead, x->x_fifotail, sysrtn);
+    	    		sprintf(boo, "after: head %ld, tail %ld, pages %d\n", x->x_fifohead, x->x_fifotail, sysrtn);
 					pute(boo);
 				}
 				else	/* just wait... */
@@ -1069,8 +1071,7 @@ static void *oggcast_new(t_floatarg fnchannels, t_floatarg fbufsize)
 	x->x_bcpublic = 1;
 	x->x_mountpoint = "puredata.ogg";
 	x->x_servertype = 1;			/* HTTP/1.0 protocol for Icecast2 */
-    
-    logpost(NULL, 4, oggcast_version);
+    logpost(NULL, 4, "oggcast~: ogg/vorbis streaming client version 0.2k, written by Olaf Matthes");
 	post("oggcast~: set buffer to %dk bytes", bufsize / 1024);
 	post("oggcast~: encoding %d channels @ %d Hz", x->x_channels, x->x_samplerate);
 
@@ -1165,6 +1166,7 @@ static void oggcast_disconnect(t_oggcast *x)
 
 static void oggcast_connect(t_oggcast *x, t_symbol *s, int argc, t_atom *argv)
 {
+    x->x_ignore = s;
     t_symbol *hostsym = atom_getsymbolarg(0, argc, argv);
     t_symbol *mountsym = atom_getsymbolarg(1, argc, argv);
     t_float portno = atom_getfloatarg(2, argc, argv);
@@ -1180,8 +1182,8 @@ static void oggcast_connect(t_oggcast *x, t_symbol *s, int argc, t_atom *argv)
 	else
 	{
 		x->x_requestcode = REQUEST_CONNECT;
-		x->x_hostname = hostsym->s_name;
-		x->x_mountpoint = mountsym->s_name;
+		x->x_hostname = (char *)hostsym->s_name;
+		x->x_mountpoint = (char *)mountsym->s_name;
 		x->x_port = portno;
 
 		x->x_fifotail = 0;
@@ -1242,7 +1244,7 @@ static void oggcast_dsp(t_oggcast *x, t_signal **sp)
 static void oggcast_password(t_oggcast *x, t_symbol *password)
 {
     pthread_mutex_lock(&x->x_mutex);
-    x->x_passwd = password->s_name;
+    x->x_passwd = (char *)password->s_name;
     pthread_mutex_unlock(&x->x_mutex);
 }
     /* set comment fields for header (reads in just anything) */
